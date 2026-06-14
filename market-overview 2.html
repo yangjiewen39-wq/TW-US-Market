@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>盤況總覽</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --bg: #0d1117; --surface: #161b22; --surface2: #1c2330;
+    --border: #21262d; --text: #e6edf3; --muted: #7d8590;
+    --up: #3fb950; --down: #f85149; --flat: #7d8590;
+    --accent: #58a6ff; --gold: #d29922;
+  }
+  body { background:var(--bg); color:var(--text); font-family:-apple-system,'Helvetica Neue',sans-serif; font-size:14px; padding-bottom:40px; }
+  header { display:flex; align-items:center; justify-content:space-between; padding:16px 16px 12px; border-bottom:1px solid var(--border); position:sticky; top:0; background:var(--bg); z-index:100; }
+  header h1 { font-size:17px; font-weight:600; }
+  .update-time { font-size:11px; color:var(--muted); margin-top:2px; }
+  .refresh-btn { background:var(--surface2); border:1px solid var(--border); color:var(--text); border-radius:8px; padding:6px 12px; font-size:13px; cursor:pointer; display:flex; align-items:center; gap:5px; }
+  .refresh-btn:active { background:var(--border); }
+  .spinning { animation:spin 1s linear infinite; display:inline-block; }
+  @keyframes spin { to { transform:rotate(360deg); } }
+  section { padding:16px 12px 4px; }
+  .section-label { font-size:11px; font-weight:600; letter-spacing:1.2px; text-transform:uppercase; color:var(--muted); margin-bottom:10px; padding-left:4px; }
+  .cards { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+  .card { background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:12px 12px 10px; position:relative; overflow:hidden; }
+  .card::before { content:''; position:absolute; left:0; top:0; bottom:0; width:3px; border-radius:3px 0 0 3px; background:var(--flat); }
+  .card.up::before { background:var(--up); }
+  .card.down::before { background:var(--down); }
+  .card.up { border-color:rgba(63,185,80,0.2); }
+  .card.down { border-color:rgba(248,81,73,0.2); }
+  .card-name { font-size:11px; color:var(--muted); margin-bottom:2px; }
+  .card-price { font-size:22px; font-weight:700; letter-spacing:-0.5px; line-height:1.1; margin:4px 0 2px; }
+  .card-price.loading { font-size:14px; color:var(--muted); font-weight:400; animation:pulse 1.5s ease-in-out infinite; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
+  .card-change { font-size:12px; font-weight:500; }
+  .card-extra { font-size:10px; color:var(--muted); margin-top:3px; }
+  .up-color { color:var(--up); } .down-color { color:var(--down); } .flat-color { color:var(--muted); }
+  .card.wide { grid-column:span 2; display:flex; align-items:center; justify-content:space-between; }
+  .vix-meter { flex:1; margin-left:16px; }
+  .vix-bar-bg { height:6px; background:var(--border); border-radius:3px; overflow:hidden; margin-top:4px; }
+  .vix-bar-fill { height:100%; border-radius:3px; background:linear-gradient(90deg,var(--up),var(--gold),var(--down)); transition:width 0.5s ease; }
+  .vix-labels { display:flex; justify-content:space-between; font-size:9px; color:var(--muted); margin-top:2px; }
+  .vix-zone { font-size:10px; font-weight:600; margin-top:2px; }
+  .divider { height:1px; background:var(--border); margin:4px 12px; opacity:0.5; }
+  .gap { height:8px; }
+  .footer { text-align:center; font-size:10px; color:var(--muted); padding:20px 12px 0; }
+  .source-tag { font-size:9px; color:var(--border); position:absolute; right:8px; bottom:6px; }
+</style>
+</head>
+<body>
+
+<header>
+  <div>
+    <h1>📊 盤況總覽</h1>
+    <div class="update-time" id="update-time">－</div>
+  </div>
+  <button class="refresh-btn" onclick="fetchAll()">
+    <span id="spin-icon">↻</span> 更新
+  </button>
+</header>
+
+<section>
+  <div class="section-label">🇹🇼 台灣</div>
+  <div class="cards">
+    <div class="card" id="card-taiex">
+      <div class="card-name">台股大盤</div>
+      <div class="card-price loading" id="price-taiex">載入中</div>
+      <div class="card-change" id="change-taiex">－</div>
+    </div>
+    <div class="card" id="card-futures">
+      <div class="card-name">臺股期貨指數</div>
+      <div class="card-price loading" id="price-futures">載入中</div>
+      <div class="card-change" id="change-futures">－</div>
+    </div>
+    <div class="card" id="card-0050">
+      <div class="card-name">0050 元大台灣50</div>
+      <div class="card-price loading" id="price-0050">載入中</div>
+      <div class="card-change" id="change-0050">－</div>
+    </div>
+    <div class="card" id="card-00631L">
+      <div class="card-name">00631L 台灣50正2</div>
+      <div class="card-price loading" id="price-00631L">載入中</div>
+      <div class="card-change" id="change-00631L">－</div>
+    </div>
+    <div class="card" id="card-00981A">
+      <div class="card-name">00981A 統一台股增長</div>
+      <div class="card-price loading" id="price-00981A">載入中</div>
+      <div class="card-change" id="change-00981A">－</div>
+      <div class="source-tag" id="src-00981A"></div>
+    </div>
+    <div class="card" id="card-00403A">
+      <div class="card-name">00403A 統一台股升級50</div>
+      <div class="card-price loading" id="price-00403A">載入中</div>
+      <div class="card-change" id="change-00403A">－</div>
+    </div>
+
+    <div class="card" id="card-0056">
+      <div class="card-name">0056 元大高股息</div>
+      <div class="card-price loading" id="price-0056">載入中</div>
+      <div class="card-change" id="change-0056">－</div>
+    </div>
+  </div>
+</section>
+
+<div class="divider"></div>
+
+<section>
+  <div class="section-label">🇺🇸 美國</div>
+  <div class="cards">
+    <div class="card" id="card-sp500">
+      <div class="card-name">S&amp;P 500</div>
+      <div class="card-price loading" id="price-sp500">載入中</div>
+      <div class="card-change" id="change-sp500">－</div>
+    </div>
+    <div class="card" id="card-sox">
+      <div class="card-name">費城半導體 SOX</div>
+      <div class="card-price loading" id="price-sox">載入中</div>
+      <div class="card-change" id="change-sox">－</div>
+    </div>
+    <div class="card" id="card-nasdaq">
+      <div class="card-name">NASDAQ</div>
+      <div class="card-price loading" id="price-nasdaq">載入中</div>
+      <div class="card-change" id="change-nasdaq">－</div>
+    </div>
+    <div class="card wide" id="card-vix">
+      <div>
+        <div class="card-name">恐慌指數 VIX</div>
+        <div class="card-price loading" id="price-vix">載入中</div>
+        <div class="card-change" id="change-vix">－</div>
+      </div>
+      <div class="vix-meter" id="vix-meter" style="display:none">
+        <div class="vix-bar-bg"><div class="vix-bar-fill" id="vix-fill" style="width:0%"></div></div>
+        <div class="vix-labels"><span>低 12</span><span>正常 20</span><span>高 40+</span></div>
+        <div class="vix-zone" id="vix-zone"></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<div class="footer">資料來源：Yahoo Finance / 臺灣證交所｜非即時報價，僅供參考</div>
+
+<script>
+const YAHOO_SYMS = {
+  taiex:   { yahoo:'^TWII',     fmt:'index' },
+  futures: { yahoo:'IX0126.TW', fmt:'index' },
+  '0050':  { yahoo:'0050.TW',   fmt:'stock' },
+  '00631L':{ yahoo:'00631L.TW', fmt:'stock' },
+  sp500:   { yahoo:'^GSPC',     fmt:'index' },
+  sox:     { yahoo:'^SOX',      fmt:'index' },
+  nasdaq:  { yahoo:'^IXIC',     fmt:'index' },
+  '0056':  { yahoo:'0056.TW',   fmt:'stock' },
+  '00403A':{ yahoo:'00403A.TW', fmt:'stock' },
+  vix:     { yahoo:'^VIX',      fmt:'vix'   },
+};
+
+// 00981A from TWSE OpenAPI
+const TWSE_SYMS = {
+  '00981A': '00981a',
+};
+
+function fmtNum(n, fmt) {
+  if (fmt==='stock'||fmt==='vix') return n.toFixed(2);
+  if (n>=1000) return n.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
+  return n.toFixed(2);
+}
+
+const PROXIES = [
+  s=>`https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(s)}?interval=1d&range=2d`,
+  s=>`https://query2.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(s)}?interval=1d&range=2d`,
+  s=>`https://corsproxy.io/?url=${encodeURIComponent('https://query1.finance.yahoo.com/v8/finance/chart/'+encodeURIComponent(s)+'?interval=1d&range=2d')}`,
+  s=>`https://api.allorigins.win/get?url=${encodeURIComponent('https://query1.finance.yahoo.com/v8/finance/chart/'+encodeURIComponent(s)+'?interval=1d&range=2d')}`,
+];
+
+async function fetchYahoo(sym) {
+  for (const fn of PROXIES) {
+    try {
+      const r = await fetch(fn(sym),{signal:AbortSignal.timeout(8000)});
+      if (!r.ok) throw new Error('HTTP '+r.status);
+      let d = await r.json();
+      if (d.contents) d = JSON.parse(d.contents);
+      const meta = d.chart.result[0].meta;
+      const price = meta.regularMarketPrice;
+      const prev = meta.chartPreviousClose||meta.previousClose;
+      if (!price) throw new Error('no price');
+      return {price, change:price-prev, pct:(price-prev)/prev*100};
+    } catch(e) {}
+  }
+  return null;
+}
+
+// 抓單一股票：用 Yahoo Finance 加 .TW 後綴
+async function fetchTWSE(stockNo) {
+  // 00981A 在 Yahoo Finance 代碼是 00981A.TW
+  const sym = stockNo.toUpperCase() + '.TW';
+  return await fetchYahoo(sym);
+}
+
+function setCard(key, data, fmt, srcLabel) {
+  const card    = document.getElementById('card-'+key);
+  const priceEl = document.getElementById('price-'+key);
+  const changeEl= document.getElementById('change-'+key);
+  priceEl.classList.remove('loading');
+  if (!data) {
+    priceEl.textContent='－'; changeEl.textContent='無法載入'; changeEl.className='card-change flat-color'; return;
+  }
+  const {price,change,pct}=data;
+  const dir=change>0?'up':change<0?'down':'flat';
+  const sign=change>0?'+':'';
+  const isWide=key==='vix';
+  card.className='card'+(isWide?' wide':'')+' '+dir;
+  priceEl.textContent=fmtNum(price,fmt||'stock');
+  changeEl.textContent=`${sign}${fmtNum(change,fmt||'stock')}  ${sign}${pct.toFixed(2)}%`;
+  changeEl.className='card-change '+dir+'-color';
+  if (srcLabel) {
+    const srcEl=document.getElementById('src-'+key);
+    if(srcEl) srcEl.textContent=srcLabel;
+  }
+  if (key==='vix') {
+    document.getElementById('vix-meter').style.display='block';
+    document.getElementById('vix-fill').style.width=Math.min((price-10)/45*100,100)+'%';
+    const z=document.getElementById('vix-zone');
+    if(price<15){z.textContent='😴 低恐慌';z.style.color='var(--up)';}
+    else if(price<20){z.textContent='😌 正常';z.style.color='var(--up)';}
+    else if(price<30){z.textContent='😟 警戒';z.style.color='var(--gold)';}
+    else{z.textContent='😱 極度恐慌';z.style.color='var(--down)';}
+  }
+}
+
+let fetching=false;
+async function fetchAll() {
+  if(fetching) return; fetching=true;
+  const icon=document.getElementById('spin-icon');
+  icon.classList.add('spinning');
+
+  // Reset all cards
+  const allKeys=[...Object.keys(YAHOO_SYMS),...Object.keys(TWSE_SYMS)];
+  allKeys.forEach(k=>{
+    const p=document.getElementById('price-'+k);
+    if(p){p.classList.add('loading');p.textContent='載入中';}
+    const c=document.getElementById('change-'+k);
+    if(c) c.textContent='－';
+    const card=document.getElementById('card-'+k);
+    if(card) card.className='card'+(k==='vix'?' wide':'');
+  });
+
+  // Fetch Yahoo symbols
+  await Promise.all(Object.entries(YAHOO_SYMS).map(async([key,info])=>{
+    const data=await fetchYahoo(info.yahoo);
+    setCard(key,data,info.fmt);
+  }));
+
+  // Fetch TWSE OTC symbols
+  await Promise.all(Object.entries(TWSE_SYMS).map(async([key,stockNo])=>{
+    const data=await fetchTWSE(stockNo);
+    setCard(key,data,'stock','證交所');
+  }));
+
+  document.getElementById('update-time').textContent=
+    '更新：'+new Date().toLocaleTimeString('zh-TW',{hour:'2-digit',minute:'2-digit',second:'2-digit'});
+  icon.classList.remove('spinning');
+  fetching=false;
+}
+
+fetchAll();
+</script>
+
+
+</body>
+</html>
