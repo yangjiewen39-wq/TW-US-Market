@@ -1,0 +1,389 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>盤況總覽</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --bg: #0d1117; --surface: #161b22; --surface2: #1c2330;
+    --border: #21262d; --text: #e6edf3; --muted: #7d8590;
+    --up: #3fb950; --down: #f85149; --flat: #7d8590;
+    --accent: #58a6ff; --gold: #d29922;
+  }
+  body { background:var(--bg); color:var(--text); font-family:-apple-system,'Helvetica Neue',sans-serif; font-size:14px; padding-bottom:40px; }
+  header { display:flex; align-items:center; justify-content:space-between; padding:16px 16px 12px; border-bottom:1px solid var(--border); position:sticky; top:0; background:var(--bg); z-index:100; }
+  header h1 { font-size:17px; font-weight:600; }
+  .update-time { font-size:11px; color:var(--muted); margin-top:2px; }
+  .refresh-btn { background:var(--surface2); border:1px solid var(--border); color:var(--text); border-radius:8px; padding:6px 12px; font-size:13px; cursor:pointer; display:flex; align-items:center; gap:5px; }
+  .refresh-btn:active { background:var(--border); }
+  .spinning { animation:spin 1s linear infinite; display:inline-block; }
+  @keyframes spin { to { transform:rotate(360deg); } }
+  section { padding:16px 12px 4px; }
+  .section-label { font-size:11px; font-weight:600; letter-spacing:1.2px; text-transform:uppercase; color:var(--muted); margin-bottom:10px; padding-left:4px; }
+  .cards { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+  .card { background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:12px 12px 10px; position:relative; overflow:hidden; cursor:pointer; transition:border-color 0.2s, transform 0.1s; }
+  .card:active { transform:scale(0.97); }
+  .card::before { content:''; position:absolute; left:0; top:0; bottom:0; width:3px; border-radius:3px 0 0 3px; background:var(--flat); transition:background 0.3s; }
+  .card.up::before { background:var(--up); }
+  .card.down::before { background:var(--down); }
+  .card.up { border-color:rgba(63,185,80,0.2); }
+  .card.down { border-color:rgba(248,81,73,0.2); }
+  .card-arrow { position:absolute; right:10px; top:12px; font-size:10px; color:var(--muted); transition:transform 0.2s; }
+  .card.expanded .card-arrow { transform:rotate(180deg); }
+  .card-name { font-size:11px; color:var(--muted); margin-bottom:2px; }
+  .card-price { font-size:22px; font-weight:700; letter-spacing:-0.5px; line-height:1.1; margin:4px 0 2px; }
+  .card-price.loading { font-size:14px; color:var(--muted); font-weight:400; animation:pulse 1.5s ease-in-out infinite; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
+  .card-change { font-size:12px; font-weight:500; }
+  .up-color { color:var(--up); } .down-color { color:var(--down); } .flat-color { color:var(--muted); }
+  .card.wide { grid-column:span 2; display:flex; align-items:center; justify-content:space-between; }
+  .vix-meter { flex:1; margin-left:16px; }
+  .vix-bar-bg { height:6px; background:var(--border); border-radius:3px; overflow:hidden; margin-top:4px; }
+  .vix-bar-fill { height:100%; border-radius:3px; background:linear-gradient(90deg,var(--up),var(--gold),var(--down)); transition:width 0.5s ease; }
+  .vix-labels { display:flex; justify-content:space-between; font-size:9px; color:var(--muted); margin-top:2px; }
+  .vix-zone { font-size:10px; font-weight:600; margin-top:2px; }
+  .detail-panel { display:none; background:var(--surface2); border:1px solid var(--border); border-radius:12px; margin-top:8px; overflow:hidden; }
+  .detail-panel.open { display:block; }
+  .detail-tabs { display:flex; border-bottom:1px solid var(--border); }
+  .tab-btn { flex:1; padding:10px 4px; font-size:12px; font-weight:500; color:var(--muted); background:none; border:none; cursor:pointer; border-bottom:2px solid transparent; transition:all 0.15s; }
+  .tab-btn.active { color:var(--accent); border-bottom-color:var(--accent); }
+  .tab-content { display:none; }
+  .tab-content.active { display:block; }
+  .chart-wrap { width:100%; height:320px; }
+  .tradingview-widget-container, .tradingview-widget-container__widget { height:100%; width:100%; }
+  .news-list { padding:8px 12px 12px; }
+  .news-item { padding:10px 0; border-bottom:1px solid var(--border); display:block; color:var(--text); text-decoration:none; }
+  .news-item:last-child { border-bottom:none; }
+  .news-title { font-size:13px; line-height:1.4; margin-bottom:4px; }
+  .news-meta { font-size:10px; color:var(--muted); }
+  .news-loading { padding:20px; text-align:center; color:var(--muted); font-size:12px; }
+  .divider { height:1px; background:var(--border); margin:4px 12px; opacity:0.5; }
+  .footer { text-align:center; font-size:10px; color:var(--muted); padding:20px 12px 0; }
+  .gap { height:8px; }
+</style>
+</head>
+<body>
+
+<header>
+  <div>
+    <h1>📊 盤況總覽</h1>
+    <div class="update-time" id="update-time">－</div>
+  </div>
+  <button class="refresh-btn" onclick="fetchAll()">
+    <span id="spin-icon">↻</span> 更新
+  </button>
+</header>
+
+<section>
+  <div class="section-label">🇹🇼 台灣</div>
+  <div class="cards">
+    <div class="card" id="card-taiex" onclick="toggleDetail('taiex')">
+      <span class="card-arrow">▼</span>
+      <div class="card-name">台股大盤</div>
+      <div class="card-price loading" id="price-taiex">載入中</div>
+      <div class="card-change" id="change-taiex">－</div>
+    </div>
+    <div class="card" id="card-futures" onclick="toggleDetail('futures')">
+      <span class="card-arrow">▼</span>
+      <div class="card-name">臺股期貨指數</div>
+      <div class="card-price loading" id="price-futures">載入中</div>
+      <div class="card-change" id="change-futures">－</div>
+    </div>
+  </div>
+  <div class="detail-panel" id="detail-taiex">
+    <div class="detail-tabs">
+      <button class="tab-btn active" onclick="switchTab('taiex','chart',this)">📈 走勢圖</button>
+      <button class="tab-btn" onclick="switchTab('taiex','news',this)">📰 新聞</button>
+    </div>
+    <div class="tab-content active" id="tab-taiex-chart"><div class="chart-wrap" id="tv-taiex"></div></div>
+    <div class="tab-content" id="tab-taiex-news"><div class="news-list" id="news-taiex"><div class="news-loading">載入中...</div></div></div>
+  </div>
+  <div class="detail-panel" id="detail-futures">
+    <div class="detail-tabs">
+      <button class="tab-btn active" onclick="switchTab('futures','chart',this)">📈 走勢圖</button>
+      <button class="tab-btn" onclick="switchTab('futures','news',this)">📰 新聞</button>
+    </div>
+    <div class="tab-content active" id="tab-futures-chart"><div class="chart-wrap" id="tv-futures"></div></div>
+    <div class="tab-content" id="tab-futures-news"><div class="news-list" id="news-futures"><div class="news-loading">載入中...</div></div></div>
+  </div>
+
+  <div class="gap"></div>
+  <div class="cards">
+    <div class="card" id="card-0050" onclick="toggleDetail('0050')">
+      <span class="card-arrow">▼</span>
+      <div class="card-name">0050 元大台灣50</div>
+      <div class="card-price loading" id="price-0050">載入中</div>
+      <div class="card-change" id="change-0050">－</div>
+    </div>
+    <div class="card" id="card-00631L" onclick="toggleDetail('00631L')">
+      <span class="card-arrow">▼</span>
+      <div class="card-name">00631L 台灣50正2</div>
+      <div class="card-price loading" id="price-00631L">載入中</div>
+      <div class="card-change" id="change-00631L">－</div>
+    </div>
+  </div>
+  <div class="detail-panel" id="detail-0050">
+    <div class="detail-tabs">
+      <button class="tab-btn active" onclick="switchTab('0050','chart',this)">📈 走勢圖</button>
+      <button class="tab-btn" onclick="switchTab('0050','news',this)">📰 新聞</button>
+    </div>
+    <div class="tab-content active" id="tab-0050-chart"><div class="chart-wrap" id="tv-0050"></div></div>
+    <div class="tab-content" id="tab-0050-news"><div class="news-list" id="news-0050"><div class="news-loading">載入中...</div></div></div>
+  </div>
+  <div class="detail-panel" id="detail-00631L">
+    <div class="detail-tabs">
+      <button class="tab-btn active" onclick="switchTab('00631L','chart',this)">📈 走勢圖</button>
+      <button class="tab-btn" onclick="switchTab('00631L','news',this)">📰 新聞</button>
+    </div>
+    <div class="tab-content active" id="tab-00631L-chart"><div class="chart-wrap" id="tv-00631L"></div></div>
+    <div class="tab-content" id="tab-00631L-news"><div class="news-list" id="news-00631L"><div class="news-loading">載入中...</div></div></div>
+  </div>
+</section>
+
+<div class="divider"></div>
+
+<section>
+  <div class="section-label">🇺🇸 美國</div>
+  <div class="cards">
+    <div class="card" id="card-sp500" onclick="toggleDetail('sp500')">
+      <span class="card-arrow">▼</span>
+      <div class="card-name">S&amp;P 500</div>
+      <div class="card-price loading" id="price-sp500">載入中</div>
+      <div class="card-change" id="change-sp500">－</div>
+    </div>
+    <div class="card" id="card-sox" onclick="toggleDetail('sox')">
+      <span class="card-arrow">▼</span>
+      <div class="card-name">費城半導體 SOX</div>
+      <div class="card-price loading" id="price-sox">載入中</div>
+      <div class="card-change" id="change-sox">－</div>
+    </div>
+    <div class="card" id="card-nasdaq" onclick="toggleDetail('nasdaq')">
+      <span class="card-arrow">▼</span>
+      <div class="card-name">NASDAQ</div>
+      <div class="card-price loading" id="price-nasdaq">載入中</div>
+      <div class="card-change" id="change-nasdaq">－</div>
+    </div>
+    <div class="card wide" id="card-vix" onclick="toggleDetail('vix')">
+      <span class="card-arrow">▼</span>
+      <div>
+        <div class="card-name">恐慌指數 VIX</div>
+        <div class="card-price loading" id="price-vix">載入中</div>
+        <div class="card-change" id="change-vix">－</div>
+      </div>
+      <div class="vix-meter" id="vix-meter" style="display:none">
+        <div class="vix-bar-bg"><div class="vix-bar-fill" id="vix-fill" style="width:0%"></div></div>
+        <div class="vix-labels"><span>低 12</span><span>正常 20</span><span>高 40+</span></div>
+        <div class="vix-zone" id="vix-zone"></div>
+      </div>
+    </div>
+  </div>
+  <div class="detail-panel" id="detail-sp500">
+    <div class="detail-tabs">
+      <button class="tab-btn active" onclick="switchTab('sp500','chart',this)">📈 走勢圖</button>
+      <button class="tab-btn" onclick="switchTab('sp500','news',this)">📰 新聞</button>
+    </div>
+    <div class="tab-content active" id="tab-sp500-chart"><div class="chart-wrap" id="tv-sp500"></div></div>
+    <div class="tab-content" id="tab-sp500-news"><div class="news-list" id="news-sp500"><div class="news-loading">載入中...</div></div></div>
+  </div>
+  <div class="detail-panel" id="detail-sox">
+    <div class="detail-tabs">
+      <button class="tab-btn active" onclick="switchTab('sox','chart',this)">📈 走勢圖</button>
+      <button class="tab-btn" onclick="switchTab('sox','news',this)">📰 新聞</button>
+    </div>
+    <div class="tab-content active" id="tab-sox-chart"><div class="chart-wrap" id="tv-sox"></div></div>
+    <div class="tab-content" id="tab-sox-news"><div class="news-list" id="news-sox"><div class="news-loading">載入中...</div></div></div>
+  </div>
+  <div class="detail-panel" id="detail-nasdaq">
+    <div class="detail-tabs">
+      <button class="tab-btn active" onclick="switchTab('nasdaq','chart',this)">📈 走勢圖</button>
+      <button class="tab-btn" onclick="switchTab('nasdaq','news',this)">📰 新聞</button>
+    </div>
+    <div class="tab-content active" id="tab-nasdaq-chart"><div class="chart-wrap" id="tv-nasdaq"></div></div>
+    <div class="tab-content" id="tab-nasdaq-news"><div class="news-list" id="news-nasdaq"><div class="news-loading">載入中...</div></div></div>
+  </div>
+  <div class="detail-panel" id="detail-vix">
+    <div class="detail-tabs">
+      <button class="tab-btn active" onclick="switchTab('vix','chart',this)">📈 走勢圖</button>
+      <button class="tab-btn" onclick="switchTab('vix','news',this)">📰 新聞</button>
+    </div>
+    <div class="tab-content active" id="tab-vix-chart"><div class="chart-wrap" id="tv-vix"></div></div>
+    <div class="tab-content" id="tab-vix-news"><div class="news-list" id="news-vix"><div class="news-loading">載入中...</div></div></div>
+  </div>
+</section>
+
+<div class="footer">資料來源：Yahoo Finance / TradingView｜非即時報價，僅供參考</div>
+
+<script>
+// ── 設定 ──────────────────────────────────────────
+const SYMBOLS = {
+  taiex:   { yahoo:'^TWII',      tv:'TWSE:TAIEX',   tz:'Asia/Taipei',       fmt:'index', newsQ:'台股 大盤' },
+  futures: { yahoo:'IX0126.TW',  tv:'TWSE:IX0126',   tz:'Asia/Taipei',       fmt:'index', newsQ:'台指期' },
+  '0050':  { yahoo:'0050.TW',    tv:'TWSE:0050',     tz:'Asia/Taipei',       fmt:'stock', newsQ:'0050 ETF' },
+  '00631L':{ yahoo:'00631L.TW',  tv:'TWSE:00631L',   tz:'Asia/Taipei',       fmt:'stock', newsQ:'00631L 正2' },
+  sp500:   { yahoo:'^GSPC',      tv:'SP:SPX',        tz:'America/New_York',  fmt:'index', newsQ:'S&P 500' },
+  sox:     { yahoo:'^SOX',       tv:'NASDAQ:SOX',    tz:'America/New_York',  fmt:'index', newsQ:'費城半導體 SOX' },
+  nasdaq:  { yahoo:'^IXIC',      tv:'NASDAQ:NDX',    tz:'America/New_York',  fmt:'index', newsQ:'NASDAQ' },
+  vix:     { yahoo:'^VIX',       tv:'CBOE:VIX',      tz:'America/New_York',  fmt:'vix',   newsQ:'VIX 恐慌指數' },
+};
+
+// ── 報價 ─────────────────────────────────────────
+function fmtNum(n, fmt) {
+  if (fmt==='stock'||fmt==='vix') return n.toFixed(2);
+  if (n>=1000) return n.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
+  return n.toFixed(2);
+}
+
+const PROXIES = [
+  s=>`https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(s)}?interval=1d&range=2d`,
+  s=>`https://query2.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(s)}?interval=1d&range=2d`,
+  s=>`https://corsproxy.io/?url=${encodeURIComponent('https://query1.finance.yahoo.com/v8/finance/chart/'+encodeURIComponent(s)+'?interval=1d&range=2d')}`,
+  s=>`https://api.allorigins.win/get?url=${encodeURIComponent('https://query1.finance.yahoo.com/v8/finance/chart/'+encodeURIComponent(s)+'?interval=1d&range=2d')}`,
+];
+
+async function fetchQuote(sym) {
+  for (const fn of PROXIES) {
+    try {
+      const r = await fetch(fn(sym),{signal:AbortSignal.timeout(8000)});
+      if (!r.ok) throw new Error('HTTP '+r.status);
+      let d = await r.json();
+      if (d.contents) d = JSON.parse(d.contents);
+      const meta = d.chart.result[0].meta;
+      const price = meta.regularMarketPrice;
+      const prev = meta.chartPreviousClose||meta.previousClose;
+      if (!price) throw new Error('no price');
+      return {price, change:price-prev, pct:(price-prev)/prev*100};
+    } catch(e) {}
+  }
+  return null;
+}
+
+function setCard(key, data) {
+  const info = SYMBOLS[key];
+  const card = document.getElementById('card-'+key);
+  const priceEl = document.getElementById('price-'+key);
+  const changeEl = document.getElementById('change-'+key);
+  priceEl.classList.remove('loading');
+  if (!data) {
+    priceEl.textContent='－'; changeEl.textContent='無法載入'; changeEl.className='card-change flat-color'; return;
+  }
+  const {price,change,pct} = data;
+  const dir = change>0?'up':change<0?'down':'flat';
+  const sign = change>0?'+':'';
+  const isWide = key==='vix';
+  card.className = 'card'+(isWide?' wide':'')+' '+dir;
+  priceEl.textContent = fmtNum(price,info.fmt);
+  changeEl.textContent = `${sign}${fmtNum(change,info.fmt)}  ${sign}${pct.toFixed(2)}%`;
+  changeEl.className = 'card-change '+dir+'-color';
+  if (key==='vix') {
+    document.getElementById('vix-meter').style.display='block';
+    document.getElementById('vix-fill').style.width=Math.min((price-10)/45*100,100)+'%';
+    const z=document.getElementById('vix-zone');
+    if(price<15){z.textContent='😴 低恐慌';z.style.color='var(--up)';}
+    else if(price<20){z.textContent='😌 正常';z.style.color='var(--up)';}
+    else if(price<30){z.textContent='😟 警戒';z.style.color='var(--gold)';}
+    else{z.textContent='😱 極度恐慌';z.style.color='var(--down)';}
+  }
+}
+
+let fetching=false;
+async function fetchAll() {
+  if(fetching) return; fetching=true;
+  const icon=document.getElementById('spin-icon');
+  icon.classList.add('spinning');
+  Object.keys(SYMBOLS).forEach(k=>{
+    const p=document.getElementById('price-'+k);
+    p.classList.add('loading'); p.textContent='載入中';
+    document.getElementById('change-'+k).textContent='－';
+    const isWide=k==='vix';
+    document.getElementById('card-'+k).className='card'+(isWide?' wide':'');
+  });
+  await Promise.all(Object.entries(SYMBOLS).map(async([key,info])=>{
+    const data=await fetchQuote(info.yahoo);
+    setCard(key,data);
+  }));
+  document.getElementById('update-time').textContent=
+    '更新：'+new Date().toLocaleTimeString('zh-TW',{hour:'2-digit',minute:'2-digit',second:'2-digit'});
+  icon.classList.remove('spinning');
+  fetching=false;
+}
+
+// ── 展開面板 ──────────────────────────────────────
+const chartLoaded={}, newsLoaded={};
+
+function toggleDetail(key) {
+  const panel=document.getElementById('detail-'+key);
+  const card=document.getElementById('card-'+key);
+  if(!panel) return;
+  const opening=!panel.classList.contains('open');
+  panel.classList.toggle('open',opening);
+  card.classList.toggle('expanded',opening);
+  if(opening) {
+    // load chart if chart tab is active
+    const chartTab=document.getElementById('tab-'+key+'-chart');
+    if(chartTab && chartTab.classList.contains('active')) loadChart(key);
+  }
+}
+
+function switchTab(key, tab, btn) {
+  // update tab buttons
+  const panel=document.getElementById('detail-'+key);
+  panel.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('active'));
+  btn.classList.add('active');
+  // show/hide content
+  document.getElementById('tab-'+key+'-chart').classList.toggle('active',tab==='chart');
+  document.getElementById('tab-'+key+'-news').classList.toggle('active',tab==='news');
+  if(tab==='chart') loadChart(key);
+  if(tab==='news') loadNews(key);
+}
+
+// ── 圖表：點擊連結開啟 Yahoo Finance ─────────────
+function loadChart(key) {
+  if(chartLoaded[key]) return;
+  chartLoaded[key]=true;
+  const info=SYMBOLS[key];
+  const container=document.getElementById('tv-'+key);
+  if(!container) return;
+  const sym=info.yahoo;
+  const url=`https://finance.yahoo.com/chart/${encodeURIComponent(sym)}`;
+  container.innerHTML=`
+    <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;gap:12px;padding:20px;">
+      <div style="font-size:36px;">📈</div>
+      <div style="font-size:14px;color:#e6edf3;font-weight:600;">${info.newsQ}</div>
+      <div style="font-size:12px;color:#7d8590;text-align:center;">點下方按鈕開啟 Yahoo Finance 走勢圖</div>
+      <a href="${url}" target="_blank" style="background:#58a6ff;color:#0d1117;border-radius:10px;padding:10px 24px;font-size:14px;font-weight:600;text-decoration:none;margin-top:4px;">開啟走勢圖 →</a>
+    </div>`;
+}
+
+// ── 新聞 ─────────────────────────────────────────
+async function loadNews(key) {
+  if(newsLoaded[key]) return;
+  newsLoaded[key]=true;
+  const q=SYMBOLS[key].newsQ;
+  const el=document.getElementById('news-'+key);
+  const rssUrl=`https://news.yahoo.com/rss/search?p=${encodeURIComponent(q)}&lang=zh-TW&region=TW`;
+  const url=`https://api.allorigins.win/get?url=${encodeURIComponent(rssUrl)}`;
+  try {
+    const r=await fetch(url,{signal:AbortSignal.timeout(10000)});
+    const d=await r.json();
+    const xml=new DOMParser().parseFromString(d.contents,'text/xml');
+    const items=Array.from(xml.querySelectorAll('item')).slice(0,6);
+    if(!items.length) throw new Error('empty');
+    el.innerHTML=items.map(item=>{
+      const title=item.querySelector('title')?.textContent||'';
+      const link=item.querySelector('link')?.textContent||'#';
+      const pub=item.querySelector('pubDate')?.textContent||'';
+      const date=pub?new Date(pub).toLocaleString('zh-TW',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'}):'';
+      const src=item.querySelector('source')?.textContent||'';
+      return `<a class="news-item" href="${link}" target="_blank"><div class="news-title">${title}</div><div class="news-meta">${src}${date?' · '+date:''}</div></a>`;
+    }).join('');
+  } catch(e) {
+    el.innerHTML=`<div class="news-loading">載入失敗，<a href="https://news.yahoo.com/search?p=${encodeURIComponent(q)}" target="_blank" style="color:var(--accent)">點此搜尋</a></div>`;
+  }
+}
+
+fetchAll();
+</script>
+</body>
+</html>
